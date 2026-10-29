@@ -32,7 +32,7 @@ on:
         description: 'Build configuration (Debug is faster, Release for production)'
         required: false
         type: string
-        default: 'Debug'
+        default: 'Release'
       flutter_version:
         description: 'Flutter version to use (e.g., 3.24.0). Empty means latest stable.'
         required: false
@@ -358,13 +358,8 @@ jobs:
 
           if [ "$PROJECT_TYPE" = "flutter" ]; then
             cd "$GITHUB_WORKSPACE"
-            if [ "$CONFIGURATION" = "Debug" ]; then
-              echo "Building Flutter iOS Debug..."
-              flutter build ios --debug --no-codesign
-            else
-              echo "Building Flutter iOS Release..."
-              flutter build ios --release --no-codesign
-            fi
+            echo "Building Flutter iOS Release..."
+            flutter build ios --release --no-codesign
             cd "$IOS_PATH"
 
             if [ "$USE_SIGNING" = "true" ]; then
