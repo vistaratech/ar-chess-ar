@@ -43,12 +43,10 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-      if target.name.to_s.downcase.include?('stockfish')
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
-        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'NNUE_EMBEDDING_OFF=1'
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] ||= ['$(inherited)']
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] << '-DNNUE_EMBEDDING_OFF=1'
-      end
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'NNUE_EMBEDDING_OFF=1'
+      config.build_settings['OTHER_CPLUSPLUSFLAGS'] ||= ['$(inherited)']
+      config.build_settings['OTHER_CPLUSPLUSFLAGS'] << '-DNNUE_EMBEDDING_OFF=1'
     end
   end
 end

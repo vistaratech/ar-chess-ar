@@ -10,7 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  stockfish: ^1.8.1
+  stockfish:
+    path: packages/stockfish
   chess: ^0.7.0
   flutter_chess_board: ^1.0.1
   image_picker: ^1.0.7

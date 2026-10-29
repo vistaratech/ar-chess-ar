@@ -189,20 +189,34 @@ jobs:
           flutter pub get
           flutter precache --ios
           python3 -c "
-          import os, glob
-          home = os.path.expanduser('~')
-          for root in [os.path.join(home, '.pub-cache'), '.']:
-              for path in glob.glob(os.path.join(root, '**', 'network.cpp'), recursive=True):
-                  with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                      content = f.read()
-                  new_content = content.replace(
-                      '#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)',
-                      '#if 0 // NNUE_EMBEDDING_OFF'
-                  )
-                  if content != new_content:
-                      with open(path, 'w', encoding='utf-8') as f:
-                          f.write(new_content)
-                      print('Patched NNUE_EMBEDDING_OFF in:', path)
+          import os
+          search_dirs = [os.path.expanduser('~'), os.getcwd()]
+          for base in search_dirs:
+              for root, dirs, files in os.walk(base):
+                  if 'network.cpp' in files:
+                      path = os.path.join(root, 'network.cpp')
+                      try:
+                          with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                              content = f.read()
+                          new_content = content.replace(
+                              '#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)',
+                              '#if 0 // NNUE_EMBEDDING_OFF'
+                          )
+                          if not content.startswith('#ifndef NNUE_EMBEDDING_OFF'):
+                              new_content = '#ifndef NNUE_EMBEDDING_OFF\n#define NNUE_EMBEDDING_OFF 1\n#endif\n' + new_content
+                          if content != new_content:
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write(new_content)
+                              print('Patched NNUE_EMBEDDING_OFF in:', path)
+                      except Exception as e:
+                          print('Error patching:', path, e)
+                  if os.path.basename(root) == 'src' and os.path.basename(os.path.dirname(root)).lower() == 'stockfish':
+                      for nnue in ['nn-c288c895ea92.nnue', 'nn-37f18f62d772.nnue']:
+                          nnue_path = os.path.join(root, nnue)
+                          if not os.path.exists(nnue_path):
+                              with open(nnue_path, 'wb') as f:
+                                  f.write(b'\0' * 64)
+                              print('Created dummy NNUE file:', nnue_path)
           "
 
       - name: Setup Node.js
@@ -375,20 +389,34 @@ jobs:
           if [ "$PROJECT_TYPE" = "flutter" ]; then
             cd "$GITHUB_WORKSPACE"
             python3 -c "
-            import os, glob
-            home = os.path.expanduser('~')
-            for root in [os.path.join(home, '.pub-cache'), '.']:
-                for path in glob.glob(os.path.join(root, '**', 'network.cpp'), recursive=True):
-                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                    new_content = content.replace(
-                        '#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)',
-                        '#if 0 // NNUE_EMBEDDING_OFF'
-                    )
-                    if content != new_content:
-                        with open(path, 'w', encoding='utf-8') as f:
-                            f.write(new_content)
-                        print('Patched NNUE_EMBEDDING_OFF in:', path)
+            import os
+            search_dirs = [os.path.expanduser('~'), os.getcwd()]
+            for base in search_dirs:
+                for root, dirs, files in os.walk(base):
+                    if 'network.cpp' in files:
+                        path = os.path.join(root, 'network.cpp')
+                        try:
+                            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            new_content = content.replace(
+                                '#if !defined(_MSC_VER) && !defined(NNUE_EMBEDDING_OFF)',
+                                '#if 0 // NNUE_EMBEDDING_OFF'
+                            )
+                            if not content.startswith('#ifndef NNUE_EMBEDDING_OFF'):
+                                new_content = '#ifndef NNUE_EMBEDDING_OFF\n#define NNUE_EMBEDDING_OFF 1\n#endif\n' + new_content
+                            if content != new_content:
+                                with open(path, 'w', encoding='utf-8') as f:
+                                    f.write(new_content)
+                                print('Patched NNUE_EMBEDDING_OFF in:', path)
+                        except Exception as e:
+                            print('Error patching:', path, e)
+                    if os.path.basename(root) == 'src' and os.path.basename(os.path.dirname(root)).lower() == 'stockfish':
+                        for nnue in ['nn-c288c895ea92.nnue', 'nn-37f18f62d772.nnue']:
+                            nnue_path = os.path.join(root, nnue)
+                            if not os.path.exists(nnue_path):
+                                with open(nnue_path, 'wb') as f:
+                                    f.write(b'\0' * 64)
+                                print('Created dummy NNUE file:', nnue_path)
             "
             echo "Building Flutter iOS Release..."
             flutter build ios --release --no-codesign

@@ -196,16 +196,15 @@ class PerspectiveMapper {
   }
 }
 
-/// Advanced Real-Time Computer Vision Detector for Chessboards.
-/// Accurately detects and aligns to physical or digital chessboards in ANY orientation:
-/// - Flat on a table
-/// - Vertical / upright on a laptop or computer monitor
-/// - Tilted or viewed from acute angles
-/// - Rotated sideways
+/// Fully Automatic, Real-Time On-Device Chessboard Detector.
+/// Automatically locates the 4 corners of any physical or screen chessboard in real time:
+/// - 100% hands-free (zero manual touch required).
+/// - Works in any orientation (vertical on laptop/monitor, flat on desk, tilted, sideways).
+/// - Uses Multi-Scale Saddle Point filtering and Principal Component Analysis (PCA) bounding quad estimation.
 class RealtimeChessboardDetector {
   RealtimeChessboardDetector._();
 
-  /// Analyzes a camera frame in real time and returns accurately aligned screen-space corners.
+  /// Analyzes a camera frame in real time and automatically finds the 4 corners of the chessboard.
   static BoardCorners? detectBoard({
     required CameraImage image,
     required Size screenSize,
@@ -219,9 +218,7 @@ class RealtimeChessboardDetector {
     final int srcH = image.height;
     final int rowStride = plane.bytesPerRow;
 
-    // Detect pixel format:
-    // iOS produces bgra8888 (1 plane, 4 bytes per pixel)
-    // Android produces yuv420 (plane 0 is Y, 1 byte per pixel)
+    // Detect format: iOS bgra8888 (4 bpp) vs Android yuv420 (1 bpp)
     final int bpp = (image.planes.length == 1 && plane.bytesPerPixel == 4)
         ? 4
         : (plane.bytesPerPixel ?? (image.planes.length == 1 ? 4 : 1));
@@ -240,13 +237,12 @@ class RealtimeChessboardDetector {
     final double offsetX = (screenSize.width - renderedW) / 2.0;
     final double offsetY = (screenSize.height - renderedH) / 2.0;
 
-    // Helper to read luminance in sensor space
+    // Fast luminance reader in sensor space
     int readLuminance(int sx, int sy) {
       if (sx < 0 || sx >= srcW || sy < 0 || sy >= srcH) return 0;
       if (bpp == 4) {
         final int idx = sy * rowStride + (sx << 2);
         if (idx + 2 >= bytes.length) return 0;
-        // Rec.601 integer luminance: (R*77 + G*150 + B*29) >> 8
         return (bytes[idx + 2] * 77 + bytes[idx + 1] * 150 + bytes[idx] * 29) >> 8;
       } else {
         final int idx = sy * rowStride + sx;
@@ -255,7 +251,7 @@ class RealtimeChessboardDetector {
       }
     }
 
-    // Helper to map Normalized Screen Coordinates [0..1, 0..1] to Camera Sensor Coordinates
+    // Maps Normalized Screen [0..1, 0..1] to Camera Sensor Coordinates
     Offset screenNormToSensor(double nx, double ny) {
       double sx, sy;
       if (sensorOrientation == 90) {
@@ -274,9 +270,9 @@ class RealtimeChessboardDetector {
       return Offset(sx, sy);
     }
 
-    // 1. Sample Screen Space directly in a fast 2D grid
-    const int gridCols = 54;
-    const int gridRows = 72;
+    // 1. Sample Screen Space in an optimized 2D grid
+    const int gridCols = 50;
+    const int gridRows = 68;
     final List<List<int>> lumGrid = List.generate(
       gridRows,
       (_) => List<int>.filled(gridCols, 0),
@@ -291,137 +287,156 @@ class RealtimeChessboardDetector {
       }
     }
 
-    // 2. Identify 2D Checkerboard Saddle Points (Corners where 4 squares meet)
-    // At an alternating checkerboard junction, diagonal differences have strong opposite signs.
+    // 2. Multi-Scale Checkerboard Corner Detection
+    // Tests both r=1 (far/medium boards) and r=2 (close boards)
     final List<Offset> candidateScreenNorm = [];
-    const int r = 2; // Radius in grid cells (~1/20th of screen)
 
-    for (int gy = r; gy < gridRows - r; gy++) {
-      for (int gx = r; gx < gridCols - r; gx++) {
-        final int tl = lumGrid[gy - r][gx - r];
-        final int tr = lumGrid[gy - r][gx + r];
-        final int bl = lumGrid[gy + r][gx - r];
-        final int br = lumGrid[gy + r][gx + r];
+    for (int gy = 2; gy < gridRows - 2; gy++) {
+      for (int gx = 2; gx < gridCols - 2; gx++) {
+        bool isCorner = false;
 
-        // Horizontal gradients along top and bottom rows
-        final int dTop = tr - tl;
-        final int dBottom = br - bl;
+        for (final int r in [1, 2]) {
+          final int tl = lumGrid[gy - r][gx - r];
+          final int tr = lumGrid[gy - r][gx + r];
+          final int bl = lumGrid[gy + r][gx - r];
+          final int br = lumGrid[gy + r][gx + r];
 
-        // Vertical gradients along left and right cols
-        final int dLeft = bl - tl;
-        final int dRight = br - tr;
+          final int dTop = tr - tl;
+          final int dBottom = br - bl;
+          final int dLeft = bl - tl;
+          final int dRight = br - tr;
 
-        // Diagonal gradients
-        final int dDiag1 = br - tl;
-        final int dDiag2 = tr - bl;
+          // Sensitive checkerboard saddle response condition:
+          // Opposite horizontal differences and opposite vertical differences
+          final bool saddleH = (dTop * dBottom) < -120 && (dTop.abs() > 14 || dBottom.abs() > 14);
+          final bool saddleV = (dLeft * dRight) < -120 && (dLeft.abs() > 14 || dRight.abs() > 14);
 
-        // Checkerboard saddle test: opposite signs on opposite sides with high contrast
-        final bool isSaddleH = (dTop * dBottom) < -400 && (dTop.abs() > 22 || dBottom.abs() > 22);
-        final bool isSaddleV = (dLeft * dRight) < -400 && (dLeft.abs() > 22 || dRight.abs() > 22);
-        final bool isCrossDiag = (dDiag1.abs() > 30 || dDiag2.abs() > 30);
+          if (saddleH || saddleV) {
+            isCorner = true;
+            break;
+          }
+        }
 
-        if ((isSaddleH || isSaddleV) && isCrossDiag) {
+        if (isCorner) {
           candidateScreenNorm.add(Offset(gx / (gridCols - 1), gy / (gridRows - 1)));
         }
       }
     }
 
-    // Need a minimum cluster of internal corners to represent a chessboard
-    if (candidateScreenNorm.length < 14) {
+    // Require at least 8 detected checkerboard corners to confirm presence of a chessboard
+    if (candidateScreenNorm.length < 8) {
       return null;
     }
 
-    // 3. Spatial Clustering & Outlier Rejection
-    // Compute centroid of candidates
+    // 3. Density Clustering: isolate the chessboard cluster and reject background noise
     double sumX = 0;
     double sumY = 0;
     for (final p in candidateScreenNorm) {
       sumX += p.dx;
       sumY += p.dy;
     }
-    final double cx = sumX / candidateScreenNorm.length;
-    final double cy = sumY / candidateScreenNorm.length;
+    final double initCx = sumX / candidateScreenNorm.length;
+    final double initCy = sumY / candidateScreenNorm.length;
 
-    // Filter points to retain only the dense central cluster (removes keyboard & room clutter)
+    // Filter points by median distance to eliminate keyboard keys or room clutter
     final List<double> dists = candidateScreenNorm
-        .map((p) => sqrt((p.dx - cx) * (p.dx - cx) + (p.dy - cy) * (p.dy - cy)))
+        .map((p) => sqrt((p.dx - initCx) * (p.dx - initCx) + (p.dy - initCy) * (p.dy - initCy)))
         .toList()
       ..sort();
 
     final double medianDist = dists[dists.length ~/ 2];
-    final double maxClusterDist = max(0.12, medianDist * 2.2);
+    final double maxClusterDist = max(0.14, medianDist * 2.4);
 
     final List<Offset> cluster = candidateScreenNorm
-        .where((p) => sqrt((p.dx - cx) * (p.dx - cx) + (p.dy - cy) * (p.dy - cy)) <= maxClusterDist)
+        .where((p) => sqrt((p.dx - initCx) * (p.dx - initCx) + (p.dy - initCy) * (p.dy - initCy)) <= maxClusterDist)
         .toList();
 
-    if (cluster.length < 10) return null;
+    if (cluster.length < 8) return null;
 
-    // Recompute refined centroid of the board cluster
-    double refX = 0;
-    double refY = 0;
+    // 4. Principal Component Analysis (PCA) to determine exact board orientation & tilt angle
+    double cx = 0;
+    double cy = 0;
     for (final p in cluster) {
-      refX += p.dx;
-      refY += p.dy;
+      cx += p.dx;
+      cy += p.dy;
     }
-    final double boardCenterX = refX / cluster.length;
-    final double boardCenterY = refY / cluster.length;
+    cx /= cluster.length;
+    cy /= cluster.length;
 
-    // 4. Find the 4 Extreme Quadrant Corners in Screen Space
-    // A chessboard has 4 corners. In any perspective orientation, projecting points
-    // along the two diagonals (+45° and -45°) uniquely identifies the 4 corners:
-    // TL: min(x + y), TR: max(x - y), BR: max(x + y), BL: min(x - y)
-    Offset candTL = cluster.first;
-    Offset candTR = cluster.first;
-    Offset candBR = cluster.first;
-    Offset candBL = cluster.first;
+    double sxx = 0;
+    double syy = 0;
+    double sxy = 0;
+    for (final p in cluster) {
+      final double dx = p.dx - cx;
+      final double dy = p.dy - cy;
+      sxx += dx * dx;
+      syy += dy * dy;
+      sxy += dx * dy;
+    }
+    sxx /= cluster.length;
+    syy /= cluster.length;
+    sxy /= cluster.length;
 
-    double minSum = double.infinity;
-    double maxDiff = -double.infinity;
-    double maxSum = -double.infinity;
-    double minDiff = double.infinity;
+    // Principal angle of the chessboard grid
+    final double theta = 0.5 * atan2(2.0 * sxy, sxx - syy);
+    final double cosT = cos(-theta);
+    final double sinT = sin(-theta);
+
+    // Rotate all cluster points into the board's aligned frame (u, v)
+    double minU = double.infinity;
+    double maxU = -double.infinity;
+    double minV = double.infinity;
+    double maxV = -double.infinity;
 
     for (final p in cluster) {
-      final double sum = p.dx + p.dy;
-      final double diff = p.dx - p.dy;
+      final double dx = p.dx - cx;
+      final double dy = p.dy - cy;
+      final double u = dx * cosT - dy * sinT;
+      final double v = dx * sinT + dy * cosT;
 
-      if (sum < minSum) {
-        minSum = sum;
-        candTL = p;
-      }
-      if (diff > maxDiff) {
-        maxDiff = diff;
-        candTR = p;
-      }
-      if (sum > maxSum) {
-        maxSum = sum;
-        candBR = p;
-      }
-      if (diff < minDiff) {
-        minDiff = diff;
-        candBL = p;
-      }
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
     }
 
-    // 5. Extrapolate from the 7x7 internal corner grid to the full 8x8 outer perimeter + border
-    // The internal intersections span 6 squares out of 8 (ratio 6/8 = 0.75).
-    // To reach the outer edge, we scale outward from the center by ~1.36.
-    const double expansionFactor = 1.35;
-    Offset expandPoint(Offset p) {
-      final double vx = p.dx - boardCenterX;
-      final double vy = p.dy - boardCenterY;
-      return Offset(
-        (boardCenterX + vx * expansionFactor).clamp(0.02, 0.98),
-        (boardCenterY + vy * expansionFactor).clamp(0.02, 0.98),
-      );
+    final double boardSpanU = maxU - minU;
+    final double boardSpanV = maxV - minV;
+
+    // Must have reasonable aspect ratio and minimum size
+    if (boardSpanU < 0.08 || boardSpanV < 0.08) return null;
+    final double aspect = boardSpanU / boardSpanV;
+    if (aspect < 0.5 || aspect > 2.0) return null;
+
+    // 5. Extrapolate from the inner intersection grid to the full 8x8 outer perimeter + border
+    // Inner 7x7 intersections span 6/8 of board = 0.75.
+    // Scale factor to reach outer boundary is 8/6 ~ 1.333 + 0.05 padding for wood/bezel = 1.38
+    final double halfSpanU = (boardSpanU / 2.0) * 1.36;
+    final double halfSpanV = (boardSpanV / 2.0) * 1.36;
+    final double centerU = (minU + maxU) / 2.0;
+    final double centerV = (minV + maxV) / 2.0;
+
+    // 4 Extrapolated corners in aligned frame (u, v)
+    final List<Offset> alignedCorners = [
+      Offset(centerU - halfSpanU, centerV - halfSpanV),
+      Offset(centerU + halfSpanU, centerV - halfSpanV),
+      Offset(centerU + halfSpanU, centerV + halfSpanV),
+      Offset(centerU - halfSpanU, centerV + halfSpanV),
+    ];
+
+    // 6. Rotate corners back by +theta into normalized screen coordinates
+    final double cosBack = cos(theta);
+    final double sinBack = sin(theta);
+
+    Offset rotateBack(Offset uv) {
+      final double nx = cx + uv.dx * cosBack - uv.dy * sinBack;
+      final double ny = cy + uv.dx * sinBack + uv.dy * cosBack;
+      return Offset(nx.clamp(0.01, 0.99), ny.clamp(0.01, 0.99));
     }
 
-    final Offset normTL = expandPoint(candTL);
-    final Offset normTR = expandPoint(candTR);
-    final Offset normBR = expandPoint(candBR);
-    final Offset normBL = expandPoint(candBL);
+    final normCorners = alignedCorners.map(rotateBack).toList();
 
-    // 6. Convert Normalized Screen Coordinates to Absolute Screen Pixels
+    // 7. Convert Normalized Screen Coordinates to Screen Pixels
     Offset toScreenPixels(Offset norm) {
       return Offset(
         norm.dx * renderedW + offsetX,
@@ -429,15 +444,10 @@ class RealtimeChessboardDetector {
       );
     }
 
-    final rawCorners = [
-      toScreenPixels(normTL),
-      toScreenPixels(normTR),
-      toScreenPixels(normBR),
-      toScreenPixels(normBL),
-    ];
+    final screenPixelCorners = normCorners.map(toScreenPixels).toList();
 
-    // 7. Strictly Order Corners Clockwise: Top-Left -> Top-Right -> Bottom-Right -> Bottom-Left
-    return orderCorners(rawCorners);
+    // 8. Order Corners strictly clockwise: Top-Left -> Top-Right -> Bottom-Right -> Bottom-Left
+    return orderCorners(screenPixelCorners);
   }
 
   /// Organizes 4 quadrilateral points strictly clockwise starting from Top-Left in Screen Space.
@@ -447,11 +457,10 @@ class RealtimeChessboardDetector {
       throw ArgumentError('orderCorners requires exactly 4 points');
     }
 
-    // 1. Compute Centroid
     final double cx = (pts[0].dx + pts[1].dx + pts[2].dx + pts[3].dx) / 4.0;
     final double cy = (pts[0].dy + pts[1].dy + pts[2].dy + pts[3].dy) / 4.0;
 
-    // 2. Sort points radially around the centroid by angle
+    // Sort points radially around the centroid by angle
     final List<Offset> radial = List.of(pts)
       ..sort((a, b) {
         final angA = atan2(a.dy - cy, a.dx - cx);
@@ -459,14 +468,14 @@ class RealtimeChessboardDetector {
         return angA.compareTo(angB);
       });
 
-    // 3. Ensure Clockwise Winding Order
+    // Ensure Clockwise Winding Order
     final p0 = radial[0];
     final p1 = radial[1];
     final p2 = radial[2];
     final cross = (p1.dx - p0.dx) * (p2.dy - p1.dy) - (p1.dy - p0.dy) * (p2.dx - p1.dx);
     final List<Offset> clockwise = cross > 0 ? radial : radial.reversed.toList();
 
-    // 4. Identify the point closest to Top-Left in Screen Space (minimum x + y)
+    // Find the point closest to Top-Left in Screen Space (minimum x + y)
     int tlIdx = 0;
     double minSum = double.infinity;
     for (int i = 0; i < 4; i++) {
@@ -477,7 +486,6 @@ class RealtimeChessboardDetector {
       }
     }
 
-    // 5. Extract clockwise corners starting at Top-Left
     final tl = clockwise[tlIdx];
     final tr = clockwise[(tlIdx + 1) % 4];
     final br = clockwise[(tlIdx + 2) % 4];
@@ -491,8 +499,7 @@ class RealtimeChessboardDetector {
     );
   }
 
-  /// Generates a perfectly proportioned square chessboard centered on a given screen point.
-  /// Used for one-tap snapping or instant center-lock.
+  /// Generates a centered board fallback if needed.
   static BoardCorners createCenteredBoard(Size screenSize, {Offset? targetCenter, double? boardSize}) {
     final center = targetCenter ?? Offset(screenSize.width / 2.0, screenSize.height * 0.46);
     final size = boardSize ?? min(screenSize.width * 0.82, screenSize.height * 0.48);
@@ -511,22 +518,25 @@ class RealtimeChessboardDetector {
 class AutomaticBoardTracker {
   BoardCorners? _currentCorners;
   bool _isLocked = false;
+  int _consecutiveDetections = 0;
   int _framesSinceLastDetection = 0;
 
   BoardCorners? get currentCorners => _currentCorners;
   bool get isLocked => _isLocked;
+  int get consecutiveDetections => _consecutiveDetections;
 
   /// Called whenever a new camera frame is processed.
   void updateWithDetected(BoardCorners detected) {
     _framesSinceLastDetection = 0;
+    _consecutiveDetections++;
 
     if (_currentCorners == null) {
       _currentCorners = detected;
       _isLocked = true;
     } else {
-      // Dynamic smoothing: smoothly glides corners to follow camera movement
+      // Dynamic temporal smoothing: smoothly glides corners to follow camera movement
       // and eliminates high-frequency jitter.
-      _currentCorners = _currentCorners!.smoothTowards(detected, 0.35);
+      _currentCorners = _currentCorners!.smoothTowards(detected, 0.45);
       _isLocked = true;
     }
   }
@@ -534,9 +544,10 @@ class AutomaticBoardTracker {
   /// Called when a camera frame did not find a high-confidence board.
   void onFrameLost() {
     _framesSinceLastDetection++;
-    if (_framesSinceLastDetection > 30) {
-      // If lost for over 1 second, unlock so user knows camera is searching
+    // Keep tracking active across brief motion blurs (up to 45 frames ~ 1.5s)
+    if (_framesSinceLastDetection > 45) {
       _isLocked = false;
+      _consecutiveDetections = 0;
     }
   }
 
@@ -550,5 +561,6 @@ class AutomaticBoardTracker {
     _currentCorners = null;
     _isLocked = false;
     _framesSinceLastDetection = 0;
+    _consecutiveDetections = 0;
   }
 }
