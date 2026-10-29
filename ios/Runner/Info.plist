@@ -5,7 +5,13 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Chess Stockfish App</string>
+		<string>Chesspector</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Chesspector needs camera access for AR chessboard tracking and analysis.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Chesspector needs photo library access to scan chessboard images.</string>
+		<key>NSMicrophoneUsageDescription</key>
+		<string>Camera microphone access for video capture.</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
