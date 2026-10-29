@@ -1,0 +1,19 @@
+{
+  "project": "chesspector",
+  "platform": "ios",
+  "github": {
+    "owner": "vistaratech",
+    "repo": "ar-chess-ar"
+  },
+  "ios": {
+    "path": "ios",
+    "scheme": "Runner"
+  },
+  "flutter": {
+    "version": "3.47.0",
+    "watch": {}
+  },
+  "reactNative": {},
+  "kmp": {},
+  "mobai": {}
+}
