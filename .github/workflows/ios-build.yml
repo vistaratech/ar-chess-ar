@@ -187,6 +187,7 @@ jobs:
             cp lib/api_config.example.dart lib/api_config.dart
           fi
           flutter pub get
+          flutter precache --ios
 
       - name: Setup Node.js
         if: steps.detect.outputs.type == 'reactnative' || steps.detect.outputs.type == 'expo'
