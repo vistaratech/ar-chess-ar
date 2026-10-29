@@ -468,18 +468,33 @@ class _ARLiveChessPageState extends State<ARLiveChessPage>
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 1. Camera Viewfinder
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: _cameraController!.value.previewSize?.height ?? size.width,
-              height: _cameraController!.value.previewSize?.width ?? size.height,
-              child: CameraPreview(_cameraController!),
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTapUp: (details) {
+          if (_isAdjustingCorners) return;
+          // One-tap instant snap to center chessboard under finger
+          final size = MediaQuery.of(context).size;
+          final snapped = RealtimeChessboardDetector.createCenteredBoard(
+            size,
+            targetCenter: details.localPosition,
+          );
+          _tracker.setManualCorners(snapped);
+          setState(() {
+            _corners = snapped;
+          });
+        },
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // 1. Camera Viewfinder
+            FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _cameraController!.value.previewSize?.height ?? size.width,
+                height: _cameraController!.value.previewSize?.width ?? size.height,
+                child: CameraPreview(_cameraController!),
+              ),
             ),
-          ),
 
           // Scanning Reticle (Shown when searching for board like QR code scanner)
           if (!_tracker.isLocked && _corners == null)
@@ -554,7 +569,8 @@ class _ARLiveChessPageState extends State<ARLiveChessPage>
           _buildBottomPanel(),
         ],
       ),
-    );
+    ),
+  );
   }
 
   /// Builds the top bar with tracking indicator, flip side, and settings.
@@ -626,6 +642,55 @@ class _ARLiveChessPageState extends State<ARLiveChessPage>
               ),
 
               const Spacer(),
+
+              // Quick Snap to Center Button
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.filter_center_focus_rounded,
+                    color: Color(0xFF00E5FF),
+                    size: 21,
+                  ),
+                  tooltip: 'Instant Snap to View',
+                  onPressed: () {
+                    final size = MediaQuery.of(context).size;
+                    final centered = RealtimeChessboardDetector.createCenteredBoard(size);
+                    _tracker.setManualCorners(centered);
+                    setState(() {
+                      _corners = centered;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Reset / Re-Scan Button
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.refresh_rounded,
+                    color: Colors.white70,
+                    size: 21,
+                  ),
+                  tooltip: 'Reset and Auto-Scan',
+                  onPressed: () {
+                    _tracker.reset();
+                    setState(() {
+                      _corners = null;
+                      _isAdjustingCorners = false;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
 
               // Tweak Corners Button
               Container(
