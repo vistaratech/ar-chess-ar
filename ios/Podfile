@@ -42,6 +42,13 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
     end
+  end
+  # Ensure Stockfish Pod has NNUE files copied
+  stockfish_src = File.join(__dir__, 'Pods', 'stockfish', 'Stockfish', 'src')
+  if Dir.exist?(stockfish_src)
+    system("curl -fL --retry 3 -o '#{File.join(stockfish_src, 'nn-c288c895ea92.nnue')}' 'https://tests.stockfishchess.org/api/nn/nn-c288c895ea92.nnue'") unless File.exist?(File.join(stockfish_src, 'nn-c288c895ea92.nnue'))
+    system("curl -fL --retry 3 -o '#{File.join(stockfish_src, 'nn-37f18f62d772.nnue')}' 'https://tests.stockfishchess.org/api/nn/nn-37f18f62d772.nnue'") unless File.exist?(File.join(stockfish_src, 'nn-37f18f62d772.nnue'))
   end
 end

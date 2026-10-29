@@ -188,6 +188,12 @@ jobs:
           fi
           flutter pub get
           flutter precache --ios
+          echo "Pre-downloading Stockfish NNUE models..."
+          for d in $(find "$HOME/.pub-cache" -type d -path "*Stockfish/src*" 2>/dev/null); do
+            echo "Downloading to $d"
+            curl -fL --retry 3 --connect-timeout 30 -o "$d/nn-c288c895ea92.nnue" "https://tests.stockfishchess.org/api/nn/nn-c288c895ea92.nnue" || true
+            curl -fL --retry 3 --connect-timeout 30 -o "$d/nn-37f18f62d772.nnue" "https://tests.stockfishchess.org/api/nn/nn-37f18f62d772.nnue" || true
+          done
 
       - name: Setup Node.js
         if: steps.detect.outputs.type == 'reactnative' || steps.detect.outputs.type == 'expo'
@@ -358,6 +364,18 @@ jobs:
 
           if [ "$PROJECT_TYPE" = "flutter" ]; then
             cd "$GITHUB_WORKSPACE"
+            echo "Pre-fetching Stockfish NNUE models across all project dirs..."
+            for d in $(find "$GITHUB_WORKSPACE" "$HOME/.pub-cache" -type d -path "*Stockfish/src*" 2>/dev/null); do
+              echo "Ensuring NNUE models in: $d"
+              if [ ! -s "$d/nn-c288c895ea92.nnue" ]; then
+                echo "Downloading nn-c288c895ea92.nnue to $d..."
+                curl -fL --retry 3 --connect-timeout 30 -o "$d/nn-c288c895ea92.nnue" "https://tests.stockfishchess.org/api/nn/nn-c288c895ea92.nnue" || true
+              fi
+              if [ ! -s "$d/nn-37f18f62d772.nnue" ]; then
+                echo "Downloading nn-37f18f62d772.nnue to $d..."
+                curl -fL --retry 3 --connect-timeout 30 -o "$d/nn-37f18f62d772.nnue" "https://tests.stockfishchess.org/api/nn/nn-37f18f62d772.nnue" || true
+              fi
+            done
             echo "Building Flutter iOS Release..."
             flutter build ios --release --no-codesign
             cd "$IOS_PATH"
